@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM GPU Memory Calculator</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        .card {
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        }
+        .input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.375rem;
+            margin-top: 0.25rem;
+        }
+        .button {
+            background: #2563eb;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            width: 100%;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .button:hover {
+            background: #1d4ed8;
+        }
+        .result-card {
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 0.5rem 0;
+        }
+        .result-card.success {
+            background: #f0fdf4;
+        }
+        .result-card.error {
+            background: #fef2f2;
+            color: #dc2626;
+        }
+        .quantization-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .quantization-card {
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            text-align: center;
+        }
+        .quantization-card.fits {
+            background: #eff6ff;
+        }
+        .quantization-card.exceeds {
+            background: #fef2f2;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-50 p-8">
+    <div class="max-w-xl mx-auto">
+        <div class="card">
+            <div class="p-6">
+                <h2 class="text-xl font-bold mb-6">LLM GPU Memory Calculator</h2>
+                
+                <div class="space-y-6">
+                    <div>
+                        <label class="block font-medium mb-1">
+                            Model Parameters (in billions)
+                        </label>
+                        <input type="number" id="params" placeholder="70" class="input">
+                    </div>
+                    
+                    <div>
+                        <label class="block font-medium mb-1">
+                            Available GPU Memory (GB)
+                        </label>
+                        <input type="number" id="memory" placeholder="24" class="input">
+                    </div>
+
+                    <button id="calculate" class="button">
+                        Calculate
+                    </button>
+
+                    <div id="results" class="mt-6 hidden">
+                        <h3 class="font-semibold mb-4">Results:</h3>
+                        <div id="recommendation"></div>
+                        <div id="quantization-results" class="quantization-grid"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function calculateMemory(params, bits) {
+            const P = parseFloat(params) * 1000000000; // Convert to billions
+            const Q = bits;
+            return ((P * 4) / (32 / Q)) * 1.2 / 1024; // Result in GB
+        }
+
+        document.getElementById('calculate').addEventListener('click', function() {
+            const params = document.getElementById('params').value;
+            const availableMemory = document.getElementById('memory').value;
+            
+            if (!params || !availableMemory) return;
+
+            const memoryGB = parseFloat(availableMemory);
+            const results = {
+                4: calculateMemory(params, 4),
+                8: calculateMemory(params, 8),
+                16: calculateMemory(params, 16)
+            };
+
+            // Find best quantization that fits
+            let recommendation;
+            if (results[4] <= memoryGB) {
+                recommendation = { bits: 4, memory: results[4] };
+            } else if (results[8] <= memoryGB) {
+                recommendation = { bits: 8, memory: results[8] };
+            } else if (results[16] <= memoryGB) {
+                recommendation = { bits: 16, memory: results[16] };
+            } else {
+                recommendation = { error: true };
+            }
+
+            // Show results
+            const resultsDiv = document.getElementById('results');
+            const recommendationDiv = document.getElementById('recommendation');
+            const quantizationResultsDiv = document.getElementById('quantization-results');
+            
+            resultsDiv.classList.remove('hidden');
+            
+            if (recommendation.error) {
+                recommendationDiv.innerHTML = `
+                    <div class="result-card error">
+                        Model too large for available memory. Consider using multiple GPUs or a smaller model.
+                    </div>
+                `;
+            } else {
+                recommendationDiv.innerHTML = `
+                    <div class="result-card success">
+                        <p class="font-medium">Recommended Quantization:</p>
+                        <p>${recommendation.bits}-bit quantization</p>
+                        <p class="text-sm text-gray-600">
+                            Required Memory: ${recommendation.memory.toFixed(2)} GB
+                        </p>
+                    </div>
+                `;
+            }
+
+            quantizationResultsDiv.innerHTML = Object.entries(results)
+                .map(([bits, mem]) => `
+                    <div class="quantization-card ${mem <= memoryGB ? 'fits' : 'exceeds'}">
+                        <div class="font-medium">${bits}-bit</div>
+                        <div class="text-sm">${mem.toFixed(2)} GB</div>
+                    </div>
+                `).join('');
+        });
+    </script>
+</body>
+</html>
