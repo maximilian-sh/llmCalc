@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LLM GPU Memory Calculator</title>
+    <title>LLM GPU Memory Calculator (Mac Optimized)</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
     <style>
         .card {
@@ -39,20 +39,23 @@
         .result-card.success {
             background: #f0fdf4;
         }
+        .result-card.warning {
+            background: #fffbeb;
+        }
         .result-card.error {
             background: #fef2f2;
             color: #dc2626;
         }
         .quantization-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(2, 1fr);
             gap: 1rem;
             margin-top: 1rem;
         }
         .quantization-card {
-            padding: 0.75rem;
+            padding: 1rem;
             border-radius: 0.5rem;
-            text-align: center;
+            text-align: left;
         }
         .quantization-card.fits {
             background: #eff6ff;
@@ -60,13 +63,30 @@
         .quantization-card.exceeds {
             background: #fef2f2;
         }
+        .info-text {
+            font-size: 0.875rem;
+            color: #4b5563;
+            margin-top: 0.25rem;
+        }
+        .perf-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+        .perf-excellent { background: #22c55e; }
+        .perf-good { background: #3b82f6; }
+        .perf-fair { background: #f59e0b; }
+        .perf-poor { background: #ef4444; }
     </style>
 </head>
 <body class="min-h-screen bg-gray-50 p-8">
     <div class="max-w-xl mx-auto">
         <div class="card">
             <div class="p-6">
-                <h2 class="text-xl font-bold mb-6">LLM GPU Memory Calculator</h2>
+                <h2 class="text-xl font-bold mb-2">LLM GPU Memory Calculator</h2>
+                <p class="text-sm text-gray-600 mb-6">Optimized for Apple Silicon Unified Memory</p>
                 
                 <div class="space-y-6">
                     <div>
@@ -78,17 +98,19 @@
                     
                     <div>
                         <label class="block font-medium mb-1">
-                            Available GPU Memory (GB)
+                            Available Memory (GB)
                         </label>
-                        <input type="number" id="memory" placeholder="24" class="input">
+                        <input type="number" id="memory" placeholder="16" class="input">
+                        <p class="info-text">For Macs, enter total unified memory (subtract 6-8GB for system use)</p>
                     </div>
 
                     <button id="calculate" class="button">
                         Calculate
                     </button>
 
-                    <div id="results" class="mt-6 hidden">
+                    <div id="results" class="mt-6 hidden space-y-4">
                         <h3 class="font-semibold mb-4">Results:</h3>
+                        <div id="system-note" class="text-sm text-gray-600"></div>
                         <div id="recommendation"></div>
                         <div id="quantization-results" class="quantization-grid"></div>
                     </div>
@@ -98,11 +120,43 @@
     </div>
 
     <script>
+        const QUANTIZATION_OPTIONS = {
+            '4': {
+                name: '4-bit (Q4_K_M)',
+                description: 'Fastest, lowest quality. Good for testing.',
+                performance: 'fair'
+            },
+            '5': {
+                name: '5-bit (Q5_K_M)',
+                description: 'Better balance than 4-bit, still very efficient.',
+                performance: 'good'
+            },
+            '6': {
+                name: '6-bit (Q6_K)',
+                description: 'Excellent balance of quality and memory.',
+                performance: 'excellent'
+            },
+            '8': {
+                name: '8-bit',
+                description: 'High quality, moderate memory usage.',
+                performance: 'excellent'
+            },
+            '16': {
+                name: '16-bit (float16)',
+                description: 'Highest quality, requires 2x more memory.',
+                performance: 'excellent'
+            }
+        };
+
         function calculateMemory(params, bits) {
-            // P is in billions, convert to actual number
             const P = parseFloat(params);
             const Q = bits;
-            return ((P * 4) / (32/Q)) * 1.2; // Result in GB
+            // Added extra overhead for Apple Silicon unified memory
+            return ((P * 4) / (32/Q)) * 1.3; // 30% overhead instead of 20%
+        }
+
+        function getPerformanceIndicator(performance) {
+            return `<span class="perf-indicator perf-${performance}"></span>`;
         }
 
         document.getElementById('calculate').addEventListener('click', function() {
@@ -112,20 +166,22 @@
             if (!params || !availableMemory) return;
 
             const memoryGB = parseFloat(availableMemory);
-            const results = {
-                4: calculateMemory(params, 4),
-                8: calculateMemory(params, 8),
-                16: calculateMemory(params, 16)
-            };
+            const systemMemory = 7; // Average system memory usage on macOS
+            const actualAvailableMemory = memoryGB - systemMemory;
+
+            const results = {};
+            Object.keys(QUANTIZATION_OPTIONS).forEach(bits => {
+                results[bits] = calculateMemory(params, parseInt(bits));
+            });
 
             // Find best quantization that fits
             let recommendation;
-            if (results[4] <= memoryGB) {
-                recommendation = { bits: 4, memory: results[4] };
-            } else if (results[8] <= memoryGB) {
-                recommendation = { bits: 8, memory: results[8] };
-            } else if (results[16] <= memoryGB) {
-                recommendation = { bits: 16, memory: results[16] };
+            if (results['6'] <= actualAvailableMemory) {
+                recommendation = { bits: '6', memory: results['6'] };
+            } else if (results['5'] <= actualAvailableMemory) {
+                recommendation = { bits: '5', memory: results['5'] };
+            } else if (results['4'] <= actualAvailableMemory) {
+                recommendation = { bits: '4', memory: results['4'] };
             } else {
                 recommendation = { error: true };
             }
@@ -134,34 +190,53 @@
             const resultsDiv = document.getElementById('results');
             const recommendationDiv = document.getElementById('recommendation');
             const quantizationResultsDiv = document.getElementById('quantization-results');
+            const systemNoteDiv = document.getElementById('system-note');
             
             resultsDiv.classList.remove('hidden');
+            
+            systemNoteDiv.innerHTML = `
+                Effective available memory: ${actualAvailableMemory.toFixed(1)}GB 
+                (${memoryGB}GB total - ${systemMemory}GB system reserve)
+            `;
             
             if (recommendation.error) {
                 recommendationDiv.innerHTML = `
                     <div class="result-card error">
-                        Model too large for available memory. Consider using multiple GPUs or a smaller model.
+                        <p class="font-medium">Model too large for available memory.</p>
+                        <p class="text-sm mt-2">Consider:
+                        <br>• Using a smaller model
+                        <br>• Upgrading to a Mac with more unified memory
+                        <br>• Using model splitting techniques</p>
                     </div>
                 `;
             } else {
+                const recOption = QUANTIZATION_OPTIONS[recommendation.bits];
                 recommendationDiv.innerHTML = `
                     <div class="result-card success">
-                        <p class="font-medium">Recommended Quantization:</p>
-                        <p>${recommendation.bits}-bit quantization</p>
-                        <p class="text-sm text-gray-600">
-                            Required Memory: ${recommendation.memory.toFixed(2)} GB
+                        <p class="font-medium">Recommended Configuration:</p>
+                        <p class="mt-2">${getPerformanceIndicator(recOption.performance)} ${recOption.name}</p>
+                        <p class="text-sm text-gray-600 mt-1">
+                            Required Memory: ${recommendation.memory.toFixed(1)} GB
                         </p>
+                        <p class="text-sm text-gray-600 mt-2">${recOption.description}</p>
                     </div>
                 `;
             }
 
             quantizationResultsDiv.innerHTML = Object.entries(results)
-                .map(([bits, mem]) => `
-                    <div class="quantization-card ${mem <= memoryGB ? 'fits' : 'exceeds'}">
-                        <div class="font-medium">${bits}-bit</div>
-                        <div class="text-sm">${mem.toFixed(2)} GB</div>
-                    </div>
-                `).join('');
+                .map(([bits, mem]) => {
+                    const option = QUANTIZATION_OPTIONS[bits];
+                    const fits = mem <= actualAvailableMemory;
+                    return `
+                        <div class="quantization-card ${fits ? 'fits' : 'exceeds'}">
+                            <div class="font-medium">
+                                ${getPerformanceIndicator(option.performance)} ${option.name}
+                            </div>
+                            <div class="text-sm mt-1">${mem.toFixed(1)} GB required</div>
+                            <div class="text-xs mt-2">${option.description}</div>
+                        </div>
+                    `;
+                }).join('');
         });
     </script>
 </body>
