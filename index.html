@@ -99,9 +99,10 @@
 
     <script>
         function calculateMemory(params, bits) {
-            const P = parseFloat(params) * 1000000000; // Convert to billions
+            // P is in billions, convert to actual number
+            const P = parseFloat(params);
             const Q = bits;
-            return ((P * 4) / (32 / Q)) * 1.2 / 1024; // Result in GB
+            return ((P * 4) / (32/Q)) * 1.2; // Result in GB
         }
 
         document.getElementById('calculate').addEventListener('click', function() {
